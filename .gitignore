@@ -1,0 +1,6 @@
+# exclude all subdirectories
+/*/
+# exclude saved models
+/*.pt
+# include classifier models
+!/*classifier.pt
