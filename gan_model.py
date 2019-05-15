@@ -217,7 +217,7 @@ if __name__ == "__main__":
         
     # get seeds from Model
     torch.manual_seed(Model.torch_seed)
-    np.random.seed(Model.numpy_seed)
+    np.random.set_state(Model.numpy_seed)
         
     """
     # model summaries
