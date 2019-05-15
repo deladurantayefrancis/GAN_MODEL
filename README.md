@@ -1,10 +1,10 @@
-# Project:
-GAN Model (based on DCGAN and optimized with WGAN-GP)
+# Project
+GAN Model (based on DCGAN, optimized with WGAN-GP)
 
-# Author:
+# Author
 Francis de Ladurantaye
 
-# TODO list:
+# TODO
 - Analyse latent space of generator (SVHN)
 	* left, mid, right digit
 	* colors (digits and background)
