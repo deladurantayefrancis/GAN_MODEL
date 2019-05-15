@@ -227,7 +227,7 @@ if __name__ == "__main__":
     """
     
     ### MAIN TRAINING LOOP ###
-    for epoch in np.arange(G.n_epochs, args.epochs) + 1:
+    for epoch in np.arange(Model.n_epochs, args.epochs) + 1:
         
         # train the model for a single epoch
         train(G, D, n_critics, trainloader)
