@@ -3,39 +3,46 @@ from torch.optim import Adam
 
 class Generator(nn.Module):
     
-    def __init__(self, z_size, num_channels, dim=128):
+    def __init__(self, z_size, input_size, dim=64):
         
         super(Generator, self).__init__()
-        
-        self.z_size = z_size
         
         self.best_fid = float('Inf')
         self.n_epochs = 0
         
-        def dconv_layer(in_dim, out_dim):
+        def dconv_layer(in_dim, out_dim, kernel=4, stride=2, padding=1):
             return nn.Sequential(
-                nn.ConvTranspose2d(in_dim, out_dim, 4, stride=2, padding=1, bias=False),
+                nn.ConvTranspose2d(in_dim, out_dim, kernel, stride, padding, bias=False),
                 nn.BatchNorm2d(out_dim),
                 nn.ReLU())
         
-        self.generate = nn.Sequential(
-            #nn.ConvTranspose2d(z_size, dim * 8, 4, stride=2, padding=1, bias=False),
-            dconv_layer(z_size, dim * 8),
-            dconv_layer(dim * 8, dim * 4),
-            dconv_layer(dim * 4, dim * 2),
-            dconv_layer(dim * 2, dim * 1),
-            nn.ConvTranspose2d(dim, num_channels, 4, stride=2, padding=1, bias=False),
-            nn.Tanh()
-        )
+        # last layer
+        layers = [nn.ConvTranspose2d(dim, input_size[0], 4, stride=2, padding=1, bias=False)]
+        height = input_size[1] // 2
+        width = input_size[2] // 2
         
-        #self.tanh = nn.Tanh()
+        # middle layers
+        while height > 4 or width > 4:
+            layers.insert(0, dconv_layer(dim*2, dim))
+            height //= 2
+            width //= 2
+            dim *= 2
+            
+        # first layer
+        layers.insert(0, dconv_layer(z_size, dim, kernel=(height, width), stride=1, padding=0))
         
-        self.optimizer = Adam(self.parameters(), lr=.0001, betas=(.5, .9))
+        # functions called during forward pass
+        self.generate = nn.Sequential(*layers)
+        self.tanh = nn.Tanh()
+        
+        # optimizer
+        self.optimizer = Adam(self.parameters(), lr=.00005, betas=(.5, .9))
         
         
     def forward(self, z):
         
-        out = z.view([-1, self.z_size, 1, 1])
+        out = z.view([-1, z.size(-1), 1, 1])
         out = self.generate(out)
         
-        return out
+        return self.tanh(out)
+    

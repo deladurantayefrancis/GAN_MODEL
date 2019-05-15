@@ -16,6 +16,22 @@ from score_fid import get_sample_loader
 from score_fid import get_fid_score
 
 
+class GAN_Model(torch.nn.Module):
+    def __init__(self, numpy_initial_seed, torch_initial_seed):
+        super(GAN_Model, self).__init__()
+        # save best fid and training epochs count
+        self.best_fid = float('Inf')
+        self.n_epochs = 0
+        # save seeds for reproducitility
+        self.numpy_seed = numpy_initial_seed
+        self.torch_seed = torch_initial_seed
+        # set initial seeds for reproducibility
+        np.random.seed(numpy_initial_seed)
+        torch.manual_seed(torch_initial_seed)
+        # batch of samples for visuals creation
+        self.sample_batch = torch.randn(64, z_size).to(device)
+
+
 def create_directories(dirResults, dirSamples):
     
     try:
@@ -31,17 +47,6 @@ def create_directories(dirResults, dirSamples):
         print("Directory", dirSamples + '/samples', "Created")
     except FileExistsError:
         print("Directory", dirSamples + '/samples', "already exists")
-
-
-def generate_samples(G, dirSamples, batch_size, num_samples=1024):
-    for i in range(num_samples // args.batch_size):
-        with torch.no_grad():
-            samples = torch.randn(batch_size, z_size).to(device)
-            samples = G(samples).cpu()
-            samples = samples / 2 + .5
-            for j in range(batch_size):
-                save_image(samples[j],
-                           dirSamples + '/samples/sample_' + str(batch_size*i+j) + '.png')
 
 
 def train(G, D, n_critics, trainloader):
@@ -117,6 +122,17 @@ def train(G, D, n_critics, trainloader):
         D_total.item() / len(trainloader.dataset),
         G_total.item()*n_critics / len(trainloader.dataset)
     ))
+    
+    
+def generate_samples(G, dirSamples, batch_size, num_samples=1024):
+    for i in range(num_samples // args.batch_size):
+        with torch.no_grad():
+            samples = torch.randn(batch_size, z_size).to(device)
+            samples = G(samples).cpu()
+            samples = samples / 2 + .5
+            for j in range(batch_size):
+                save_image(samples[j],
+                           dirSamples + '/samples/sample_' + str(batch_size*i+j) + '.png')
 
 
 if __name__ == "__main__":
@@ -126,12 +142,12 @@ if __name__ == "__main__":
             description='--> Wassertstein GAN with Gradient Penalty <--')
     parser.add_argument('dataset', type=str,
                         help='the dataset on which to train/test')
-    parser.add_argument('--category', metavar="'label'", type=str, default=None,
-                        help='the class on which to train/test')
     parser.add_argument('--epochs', metavar='N', type=int, default=None,
                         help='number of training epochs (test mode if not specified)')
     parser.add_argument('--batch_size', metavar='N', type=int, default=32,
                         help='number of items in a batch (default 32)')
+    parser.add_argument('--dim', metavar='N', type=int, default=64,
+                        help='base number of output channels (default 64)')
     args = parser.parse_args()
     print(args)
     
@@ -144,25 +160,27 @@ if __name__ == "__main__":
     z_size = 100
     
     # set seeds for reproducibility
-    torch.manual_seed(1234)
-    np.random.seed(1234)
+    torch.manual_seed(1)
+    np.random.seed(1)
     
     # data loaders
-    trainloader, validloader, testloader = get_data_loader(args.dataset, args.category, args.batch_size)
-    n_channels = trainloader.batch_sampler.sampler.data_source[0][0].shape[0]
+    trainloader, validloader, testloader = get_data_loader(args.dataset, args.batch_size)
+    try:
+        input_size = trainloader.batch_sampler.sampler.datasource[0][0].shape
+    except AttributeError:
+        input_size = trainloader.batch_sampler.sampler.data_source[0][0].shape
     
-    # prefix for saved models and directory names
-    if args.category:
-        model_prefix = args.dataset + '-' + args.category + '_'
-    else:
-        model_prefix = args.dataset + '_'
+    # prefix for saved model and directory names
+    model_prefix = args.dataset + '_'
         
     # classifier to extract features (for fid score computation)
     try:
-        classifier = torch.load(args.dataset + '_classifier.pt', map_location='cpu')
+        classifier = torch.load('classifier.pt', map_location='cpu')
         classifier.eval()
+        print('Classifier loaded!')
     except FileNotFoundError:
         classifier = Classifier()
+        sys.exit("Need to train a classifier!")
         # TODO: train classifier
         
     # directories for generated samples
@@ -178,7 +196,7 @@ if __name__ == "__main__":
         print('Generator loaded!')
         # generate samples
         generate_samples(G, dirSamples, args.batch_size, num_samples=4096)
-        sampleloader = get_sample_loader(dirSamples, args.batch_size)
+        sampleloader = get_sample_loader(dirSamples, args.batch_size, input_size)
         print('Samples generated!')
         # compute fid score with test set
         fid_score = get_fid_score(classifier, sampleloader, testloader)
@@ -189,44 +207,57 @@ if __name__ == "__main__":
     try:
         G = torch.load(model_prefix + 'generator.pt').to(device)
         D = torch.load(model_prefix + 'discriminator.pt').to(device)
+        Model = torch.load(model_prefix + 'model.pt').to(device)
         print('Model loaded!')
     except FileNotFoundError:
-        G = Generator(z_size, n_channels).to(device)
-        D = Discriminator(n_channels).to(device)
+        G = Generator(z_size, input_size, args.dim).to(device)
+        D = Discriminator(input_size, args.dim).to(device)
+        Model = GAN_Model(1234, 1234).to(device)
         print('Model created!')
         
-    # batch of latent codes for creating visuals
-    torch.manual_seed(1234)
-    np.random.seed(1234)
-    sample_batch = torch.randn(64, z_size).to(device)
+    # get seeds from Model
+    torch.manual_seed(Model.torch_seed)
+    np.random.seed(Model.numpy_seed)
+        
+    """
+    # model summaries
+    from torchsummary import summary
+    summary(G, (1, z_size))
+    summary(D, input_size)
+    """
     
     ### MAIN TRAINING LOOP ###
     for epoch in np.arange(G.n_epochs, args.epochs) + 1:
         
-        train(G, D, n_critics, trainloader) # train the model for a single epoch
-        G.n_epochs += 1
+        # train the model for a single epoch
+        train(G, D, n_critics, trainloader)
         
         # generate a batch of samples
         with torch.no_grad():
-            samples = G(sample_batch).cpu()
+            samples = G(Model.sample_batch).cpu()
             samples = samples / 2 + .5
-            save_image(samples.view(-1, 3, 32, 32),
+            save_image(samples.view((-1,) + input_size),
                        dirResults + '/samples_' + str(epoch) + '.png')
 
         # generate samples to compute fid score
         generate_samples(G, dirSamples, args.batch_size, num_samples=4096)
-        sampleloader = get_sample_loader(dirSamples, args.batch_size)
+        sampleloader = get_sample_loader(dirSamples, args.batch_size, input_size)
         
         # compute fid score with validation set
         current_fid = get_fid_score(classifier, sampleloader, validloader)
         
-        # if fid score is lower, we save the model
-        if current_fid < G.best_fid:
-            G.best_fid = current_fid
+        # if fid score is lower, we save the generator and the discriminator
+        if current_fid < Model.best_fid:
+            Model.best_fid = current_fid
             torch.save(G, model_prefix + 'generator.pt')
             torch.save(D, model_prefix + 'discriminator.pt')
             print('FID score:', current_fid, '- Model saved!')
         else:
             print('FID score:', current_fid)
-            
         print()
+        
+        # update and save current state of the model
+        Model.n_epochs += 1
+        Model.numpy_seed = np.random.get_state()
+        Model.torch_seed = torch.initial_seed()
+        torch.save(Model, model_prefix + 'model.pt')

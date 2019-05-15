@@ -1,5 +1,7 @@
-Project: GAN Model (based on DCGAN and optimized with WGAN-GP)
-Author: Francis de Ladurantaye - 2019
+#Project:
+GAN Model (based on DCGAN and optimized with WGAN-GP)
+#Author:
+Francis de Ladurantaye
 
 TODO list of possible addons:
 - Analyse latent space with classifier
