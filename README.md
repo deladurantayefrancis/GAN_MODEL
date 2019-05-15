@@ -1,11 +1,11 @@
-#Project:
+# Project:
 GAN Model (based on DCGAN and optimized with WGAN-GP)
-#Author:
+
+# Author:
 Francis de Ladurantaye
 
-TODO list of possible addons:
-- Analyse latent space with classifier
-	* left, mid, right digits
-	* colors (digits and background), hue in paint (~8 colors)
-	* number of digits (harder...), image segmentation?
-	* orientation (even harder...)
+# TODO list:
+- Analyse latent space of generator (SVHN)
+	* left, mid, right digit
+	* colors (digits and background)
+	* number of digits, image segmentation?
