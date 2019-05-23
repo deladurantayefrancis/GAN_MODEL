@@ -3,12 +3,9 @@ from torch.optim import Adam
 
 class Generator(nn.Module):
     
-    def __init__(self, z_size, input_size, dim=64):
+    def __init__(self, input_size, n_classes, z_size, dim=64):
         
         super(Generator, self).__init__()
-        
-        self.best_fid = float('Inf')
-        self.n_epochs = 0
         
         def dconv_layer(in_dim, out_dim, kernel=4, stride=2, padding=1):
             return nn.Sequential(
@@ -29,14 +26,14 @@ class Generator(nn.Module):
             dim *= 2
             
         # first layer
-        layers.insert(0, dconv_layer(z_size, dim, kernel=(height, width), stride=1, padding=0))
+        layers.insert(0, dconv_layer(z_size + n_classes, dim, kernel=(height, width), stride=1, padding=0))
         
         # functions called during forward pass
         self.generate = nn.Sequential(*layers)
         self.tanh = nn.Tanh()
         
         # optimizer
-        self.optimizer = Adam(self.parameters(), lr=.00005, betas=(.5, .9))
+        self.optimizer = Adam(self.parameters(), lr=.0001, betas=(.5, .9))
         
         
     def forward(self, z):

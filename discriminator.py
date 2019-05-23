@@ -3,7 +3,7 @@ from torch.optim import Adam
 
 class Discriminator(nn.Module):
     
-    def __init__(self, input_size, dim=64):
+    def __init__(self, input_size, n_classes, dim=64):
         
         super(Discriminator, self).__init__()
         
@@ -26,19 +26,22 @@ class Discriminator(nn.Module):
             dim *= 2
         
         # last layer
-        layers.append(nn.Conv2d(dim, 1, (height, width), bias=False))
+        layers.append(nn.Conv2d(dim, n_classes + 1, (height, width), bias=False))
         
         # function called during forward pass
         self.discriminate = nn.Sequential(*layers)
+        self.softmax = nn.Softmax(dim=-1)
         
         # optimizer
-        self.optimizer = Adam(self.parameters(), lr=.00005, betas=(.5, .9))
+        self.optimizer = Adam(self.parameters(), lr=.0001, betas=(.5, .9))
         
     
     def forward(self, x):
         
         out = self.discriminate(x)
-        out = out.view([-1, 1])
+        out = out.squeeze()
         
-        return out
+        scores, logits = out[:, 0], self.softmax(out[:, 1:])
+        
+        return scores.view(-1, 1), logits
     

@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torchvision.datasets
 import torchvision.transforms as transforms
@@ -81,5 +82,7 @@ def get_data_loader(dataset_name, batch_size):
         batch_size=batch_size
     )
     
-    return trainloader, validloader, testloader
+    n_classes = int(np.max(trainvalid.labels) + 1)
+    
+    return trainloader, validloader, testloader, n_classes
 
