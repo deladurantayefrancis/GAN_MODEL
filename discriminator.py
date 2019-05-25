@@ -3,20 +3,22 @@ from torch.optim import Adam
 
 class Discriminator(nn.Module):
     
-    def __init__(self, input_size, n_classes, dim=64):
+    def __init__(self, input_size, n_classes, dim, lr):
         
         super(Discriminator, self).__init__()
+        n_channels, height, width = input_size
         
-        def conv_layer(in_dim, out_dim):
+        def conv_layer(in_dim, out_dim, kernel=4, stride=2, padding=1):
             return nn.Sequential(
-                nn.Conv2d(in_dim, out_dim, 4, stride=2, padding=1, bias=False),
+                nn.Conv2d(in_dim, out_dim, kernel, stride, padding, bias=False),
                 nn.InstanceNorm2d(out_dim, affine=True),
-                nn.LeakyReLU(0.2))
+                nn.LeakyReLU(0.2),
+                nn.Dropout(0.2))
         
         # first layer
-        layers = [conv_layer(input_size[0], dim)]
-        height = input_size[1] // 2
-        width = input_size[2] // 2
+        layers = [conv_layer(n_channels, dim)]
+        height //= 2
+        width //= 2
         
         # middle layers
         while height > 4 or width > 4:
@@ -28,12 +30,12 @@ class Discriminator(nn.Module):
         # last layer
         layers.append(nn.Conv2d(dim, n_classes + 1, (height, width), bias=False))
         
-        # function called during forward pass
+        # functiona called during forward pass
         self.discriminate = nn.Sequential(*layers)
         self.softmax = nn.Softmax(dim=-1)
         
         # optimizer
-        self.optimizer = Adam(self.parameters(), lr=.0001, betas=(.5, .9))
+        self.optimizer = Adam(self.parameters(), lr=lr, betas=(.5, .999))
         
     
     def forward(self, x):
@@ -41,7 +43,8 @@ class Discriminator(nn.Module):
         out = self.discriminate(x)
         out = out.squeeze()
         
-        scores, logits = out[:, 0], self.softmax(out[:, 1:])
+        scores = out[:, 0]
+        logits = self.softmax(out[:, 1:])
         
         return scores.view(-1, 1), logits
     
