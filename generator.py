@@ -13,9 +13,24 @@ class Generator(nn.Module):
                 nn.ConvTranspose2d(in_dim, out_dim, kernel, stride, padding, bias=False),
                 nn.Sequential(
                     nn.BatchNorm2d(out_dim),
-                    nn.LeakyReLU(0.2),
-                    nn.Dropout(0.2))
+                    nn.LeakyReLU(0.2))
                 if normalize else nn.Identity())
+                
+                
+        """
+        def dconv_layer(in_dim, out_dim, kernel=3, stride=1, padding=1, size=None, normalize=True):
+            return nn.Sequential(
+                nn.Upsample(size=size, mode='bilinear') if size else nn.Upsample(scale_factor=2, mode='bilinear'),
+                nn.ReflectionPad2d(padding),
+                nn.ConvTranspose2d(in_dim, out_dim, kernel, stride, padding=0, bias=False),
+                nn.Sequential(
+                    nn.BatchNorm2d(out_dim),
+                    nn.LeakyReLU(0.2))
+                if normalize else nn.Identity())
+                
+        # first layer
+        layers.append(dconv_layer((z_size + n_classes), dim, size=))
+        """
             
         # last layer
         layers = [dconv_layer(dim, n_channels, normalize=False)]

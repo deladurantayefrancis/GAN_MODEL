@@ -13,7 +13,7 @@ class Discriminator(nn.Module):
                 nn.Conv2d(in_dim, out_dim, kernel, stride, padding, bias=False),
                 nn.InstanceNorm2d(out_dim, affine=True),
                 nn.LeakyReLU(0.2),
-                nn.Dropout(0.2))
+                nn.Dropout(0.5))
         
         # first layer
         layers = [conv_layer(n_channels, dim)]
