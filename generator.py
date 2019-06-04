@@ -8,29 +8,15 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         n_channels, height, width = input_size
         
-        def dconv_layer(in_dim, out_dim, kernel=4, stride=2, padding=1, normalize=True):
+        def dconv_layer(in_dim, out_dim, normalize=True):
             return nn.Sequential(
-                nn.ConvTranspose2d(in_dim, out_dim, kernel, stride, padding, bias=False),
+                nn.Upsample(scale_factor=2, mode='bilinear'),
+                nn.ReflectionPad2d(1),
+                nn.Conv2d(in_dim, out_dim, 3, 1, 0, bias=False),
                 nn.Sequential(
                     nn.BatchNorm2d(out_dim),
-                    nn.LeakyReLU(0.2))
+                    nn.ReLU())
                 if normalize else nn.Identity())
-                
-                
-        """
-        def dconv_layer(in_dim, out_dim, kernel=3, stride=1, padding=1, size=None, normalize=True):
-            return nn.Sequential(
-                nn.Upsample(size=size, mode='bilinear') if size else nn.Upsample(scale_factor=2, mode='bilinear'),
-                nn.ReflectionPad2d(padding),
-                nn.ConvTranspose2d(in_dim, out_dim, kernel, stride, padding=0, bias=False),
-                nn.Sequential(
-                    nn.BatchNorm2d(out_dim),
-                    nn.LeakyReLU(0.2))
-                if normalize else nn.Identity())
-                
-        # first layer
-        layers.append(dconv_layer((z_size + n_classes), dim, size=))
-        """
             
         # last layer
         layers = [dconv_layer(dim, n_channels, normalize=False)]
@@ -43,9 +29,12 @@ class Generator(nn.Module):
             height //= 2
             width //= 2
             dim *= 2
-            
+        
         # first layer
-        layers.append(dconv_layer((z_size + n_classes), dim, kernel=(height, width), stride=1, padding=0))
+        layers.append(nn.Sequential(
+            nn.ConvTranspose2d(z_size + n_classes, dim, (height, width), bias=False),
+            nn.BatchNorm2d(dim),
+            nn.ReLU()))
         
         # functions called during forward pass
         self.generate = nn.Sequential(*layers[::-1])

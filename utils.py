@@ -25,13 +25,16 @@ def create_directories(dir_results, dir_samples):
         print("Directory", dir_samples + '/samples', "already exists")
         
         
-def get_sample_batch(batchsize, z_size, n_classes, shuffle=True):
+def get_sample_batch(batchsize, z_size, n_classes, shuffle=True, random_classes=False):
     
     samples = torch.randn(batchsize, z_size).to(device)
-    classes = np.arange(batchsize, dtype=np.int64) % n_classes
     
-    if shuffle:
-        np.random.shuffle(classes)
+    if random_classes:
+        classes = np.random.randint(0, n_classes, size=batchsize, dtype=np.int64)
+    else:
+        classes = np.arange(batchsize, dtype=np.int64) % n_classes
+        if shuffle:
+            np.random.shuffle(classes)
         
     classes = torch.from_numpy(classes).to(device)
     
@@ -41,7 +44,7 @@ def get_sample_batch(batchsize, z_size, n_classes, shuffle=True):
 def generate_samples(G, dir_samples, args, num_samples=1024):
     for i in range(num_samples // args.batchsize):
         with torch.no_grad():
-            samples, _ = get_sample_batch(args.batchsize, args.z_size, args.n_classes)
+            samples, _ = get_sample_batch(args.batchsize, args.z_size, args.n_classes, random_classes=True)
             samples = G(samples).cpu()
             samples = samples / 2 + .5
             for j in range(args.batchsize):

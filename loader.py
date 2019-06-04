@@ -82,7 +82,10 @@ def get_data_loader(dataset_name, batch_size):
         batch_size=batch_size
     )
     
-    n_classes = int(np.max(trainvalid.labels) + 1)
+    try:
+        n_classes = int(np.max(trainvalid.labels) + 1)
+    except:
+        n_classes = int(np.max(trainvalid.targets) + 1)
     
     return trainloader, validloader, testloader, n_classes
 

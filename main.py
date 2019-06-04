@@ -5,6 +5,7 @@ import sys
 
 import torch
 from torchvision.utils import save_image
+from torchsummary import summary
 
 from classifier import Classifier
 from discriminator import Discriminator
@@ -22,13 +23,20 @@ from utils import generate_samples
 
 def train(G, D, args, trainloader):
     
+    wgan_total = 0
     D_total = 0
     G_total = 0
     
     # loss for class predictions
     criterion = torch.nn.CrossEntropyLoss().to(device)
     
+    # number of batches in epoch
+    batch_cnt = len(trainloader.dataset) // args.batchsize
+    
     for batch_idx, (data, labels) in enumerate(trainloader):
+        
+        if data.size(0) < args.batchsize:
+            continue
         
         ########## DISCRIMINATOR LOSS ##########
         D.optimizer.zero_grad()
@@ -38,7 +46,7 @@ def train(G, D, args, trainloader):
         real_labels = labels.to(device)
         
         # generate fake images
-        samples, fake_labels = get_sample_batch(data.size(0), args.z_size, args.n_classes)
+        samples, fake_labels = get_sample_batch(args.batchsize, args.z_size, args.n_classes)
         fake_images = G(samples)
         
         # wasserstein loss
@@ -49,30 +57,31 @@ def train(G, D, args, trainloader):
         wgan_loss = fake_loss - real_loss
         
         # gradient penalty
-        alpha = torch.rand([data.size(0), 1, 1, 1]).to(device)
+        alpha = torch.rand([args.batchsize, 1, 1, 1]).to(device)
         interpolated_images = alpha * real_images + (1 - alpha) * fake_images
         interpolated_scores, _ = D(interpolated_images)
         interpolated_grad = torch.autograd.grad(
             outputs = interpolated_scores,
             inputs = interpolated_images,
-            grad_outputs = torch.ones([data.size(0), 1]).to(device),
+            grad_outputs = torch.ones([args.batchsize, 1]).to(device),
             create_graph = True,
             retain_graph = True,
             only_inputs = True)[0]
         grad_norm = torch.norm(interpolated_grad, 2, dim=1)
         grad_penalty = 10 * torch.mean((grad_norm - 1)**2)
         
-        # class prediction loss
-        real_class_loss = criterion(real_logits, real_labels)
-        #fake_class_loss = criterion(fake_logits, fake_labels)
-        class_loss_D = real_class_loss# + fake_class_loss
+        # acgan class prediction loss
+        real_acgan_loss = criterion(real_logits, real_labels)
+        fake_acgan_loss = criterion(fake_logits, fake_labels)
+        acgan_loss_D = 3*real_acgan_loss + fake_acgan_loss
         
         # discriminator full loss and parameter update
-        D_loss = wgan_loss + grad_penalty + 100*class_loss_D
+        D_loss = wgan_loss + grad_penalty + 250*acgan_loss_D
         D_loss.backward()
         D.optimizer.step()
         
-        D_total += D_loss * data.size(0)
+        wgan_total += wgan_loss
+        D_total += D_loss
         
         ############ GENERATOR LOSS ############
         if batch_idx % args.critics == 0:
@@ -88,29 +97,33 @@ def train(G, D, args, trainloader):
             class_loss_G = criterion(fake_logits, fake_labels)
             
             # generator full loss and parameter update
-            G_loss = 100*class_loss_G - torch.mean(fake_scores)
+            G_loss = 250*class_loss_G - torch.mean(fake_scores)
             G_loss.backward()
             G.optimizer.step()
             
-            G_total += G_loss * data.shape[0]
+        G_total += G_loss
         
         # batch info display
-        if (batch_idx + 1) % int(len(trainloader.dataset) / len(data) / 10) == 0:
+        if (batch_idx + 1) % int(batch_cnt / 10) == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tD_loss: {:.6f}\tG_loss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(trainloader.dataset),
-                100 * batch_idx / len(trainloader),
-                D_loss.item(), G_loss.item()))
+                epoch,
+                batch_idx * args.batchsize,
+                batch_cnt * args.batchsize,
+                100 * batch_idx / batch_cnt,
+                D_loss.item(),
+                G_loss.item()))
     
-    print('wgan_loss =', wgan_loss.item())
-    print('====> Average epoch loss:\tD_loss: {:.4f}\tG_loss: {:.4f}\n'.format(
-        D_total.item() / len(trainloader.dataset),
-        G_total.item()*args.critics / len(trainloader.dataset)
+    print('====> Average epoch loss:\twgan_loss: {:.4f}\tD_loss: {:.4f}\tG_loss: {:.4f}\n'.format(
+        wgan_total.item() / batch_cnt,
+        D_total.item() / batch_cnt,
+        G_total.item() / batch_cnt
     ))
     
-    print('D:', class_loss_D)
+    print('DD:', real_acgan_loss)
+    print('DG:', fake_acgan_loss)
     print('G:', class_loss_G)
     
-    return D_total.item()
+    return D_total.item() / batch_cnt
 
 
 if __name__ == "__main__":
@@ -130,10 +143,12 @@ if __name__ == "__main__":
                         help='number of discriminator updates per generator update (default 5)')
     parser.add_argument('--z_size', metavar='N', type=int, default=100,
                         help='size of latent space (default 100)')
-    parser.add_argument('--load_model', default=False, action='store_true',
-                        help='whether to load the model or not (default False)')
     parser.add_argument('--lr', metavar='N', type=float, default=0.0001,
-                        help='base learning rate for Adam optimizer (default 0.0001)')
+                        help='learning rate for Adam optimizer (default 0.0001)')
+    parser.add_argument('--create', default=False, action='store_true',
+                        help='whether to create a new model or not (default True)')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='whether to display debug information (default False)')
     args = parser.parse_args()
     print(args)
     
@@ -148,9 +163,9 @@ if __name__ == "__main__":
     # data loaders and class count
     trainloader, validloader, testloader, args.n_classes = get_data_loader(args.dataset, args.batchsize)
     try:
-        input_size = trainloader.batch_sampler.sampler.datasource[0][0].shape
+        image_size = trainloader.batch_sampler.sampler.datasource[0][0].shape
     except AttributeError:
-        input_size = trainloader.batch_sampler.sampler.data_source[0][0].shape
+        image_size = trainloader.batch_sampler.sampler.data_source[0][0].shape
     
     # prefix for saved model and directory names
     model_prefix = args.dataset + '_'
@@ -178,7 +193,7 @@ if __name__ == "__main__":
         print('Generator loaded!')
         # generate samples
         generate_samples(G, dir_samples, args.batchsize, num_samples=4096)
-        sampleloader = get_sample_loader(dir_samples, args.batchsize, input_size)
+        sampleloader = get_sample_loader(dir_samples, args.batchsize, image_size)
         print('Samples generated!')
         # compute fid score with test set
         fid_score = get_fid_score(classifier, sampleloader, testloader)
@@ -187,7 +202,7 @@ if __name__ == "__main__":
 
     ########## TRAIN MODE ##########
     try:
-        if args.load_model:
+        if not args.create:
             G = torch.load(model_prefix + 'generator.pt').to(device)
             D = torch.load(model_prefix + 'discriminator.pt').to(device)
             Model = torch.load(model_prefix + 'model.pt').to(device)
@@ -195,8 +210,8 @@ if __name__ == "__main__":
         else:
             raise FileNotFoundError
     except FileNotFoundError:
-        G = Generator(args.z_size, input_size, args.n_classes, args.dim, args.lr).to(device)
-        D = Discriminator(input_size, args.n_classes, args.dim, args.lr).to(device)
+        G = Generator(args.z_size, image_size, args.n_classes, args.dim, args.lr).to(device)
+        D = Discriminator(image_size, args.n_classes, args.dim, args.lr).to(device)
         Model = GAN_Model(1234, 1234, args.z_size, args.n_classes).to(device)
         print('Model created!')
         
@@ -204,12 +219,12 @@ if __name__ == "__main__":
     torch.manual_seed(Model.torch_seed)
     np.random.set_state(Model.numpy_seed)
         
-    """
-    # model summaries
-    from torchsummary import summary
-    summary(G, (1, args.z_size))
-    summary(D, input_size)
-    """
+    # display debug information
+    if args.debug:
+        print('\nDiscriminator summary:')
+        summary(D, image_size)
+        print('\nGenerator summary:')
+        summary(G, (1, args.z_size + args.n_classes))
     
     ### MAIN TRAINING LOOP ###
     for epoch in np.arange(Model.n_epochs, args.epochs) + 1:
@@ -218,19 +233,19 @@ if __name__ == "__main__":
         G.train()
         
         # train the model for a single epoch
-        epoch_loss = train(G, D, args, trainloader)
+        mean_epoch_loss = train(G, D, args, trainloader)
         
         # generate a batch of samples
         with torch.no_grad():
             samples = G(Model.sample_batch).cpu()
             samples = samples / 2 + .5
-            save_image(samples.view((-1,) + input_size),
+            save_image(samples.view((-1,) + image_size),
                        dir_results + '/samples_' + str(epoch) + '.png',
                        nrow = int(Model.sample_batch.size(0) ** .5))
 
         # generate samples to compute fid score
         generate_samples(G, dir_samples, args, num_samples=4096)
-        sampleloader = get_sample_loader(dir_samples, args.batchsize, input_size)
+        sampleloader = get_sample_loader(dir_samples, args.batchsize, image_size)
         
         # compute fid score with validation set
         current_fid = get_fid_score(classifier, sampleloader, validloader)
@@ -247,7 +262,7 @@ if __name__ == "__main__":
         
         # update and save current state of the model
         Model.n_epochs += 1
-        Model.d_losses.append(epoch_loss)
+        Model.d_losses.append(mean_epoch_loss)
         Model.fid_scores.append(current_fid)
         Model.numpy_seed = np.random.get_state()
         Model.torch_seed = torch.initial_seed()
